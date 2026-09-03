@@ -1,0 +1,76 @@
+---
+title: "Unit 1 - DATA 607"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Set Options
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# APPROACH
+
+## *Data Source*
+
+The data source is a simulated data set that I based on research we conducted and published examining the relationship between cognition and mobility gains in patient rehabilitation for stroke.  For IRB and HIPPA reasons, I could not post the actual data set but the results and structure are similar though our original data includes over 1,000 variables.   
+
+The approach was to post the data on GitHub and then clean it in R Markdown as well as polish the names and value labels.   
+
+# CODE
+
+## Import Data  
+
+Data were imported from GitHub as a CSV file.  
+
+```{r}
+url <- "https://raw.githubusercontent.com/cam5671/DATA-607/main/unit1/Mobility%20Gains%20in%20Stroke%20Rehabilitation.csv"
+data <- read.csv(url)
+head(data)
+```
+
+## Drop Unecessary Columns
+
+The purpose is to examine the effect of admissions factors (age, sex, and clinical variables) on the Mobility Score at discharge. The mobility score is part of section GG data for inpatient rehabilitation and collected on every patient across the US.   The predictors include Cognitive Score as assessed by the Montreal Cognitive Assessment, Lower Extremity Strength as measured by the Motricity Index, Age, Sex, and Length of Stay.  The most important predictor is likely the mobility score at admission which is also included.   Discharge values for cognition and strength as well as hospital dates and clinic notes are unecessary and are omitted.  
+
+```{r}
+data <- data[,-c(2:4, 9, 11)]
+names(data)
+```
+
+## Change Variable Names
+
+Variable names can be improved to be more presentable and legible. Changing names can be perilous in R if you use a vector of names and assignment them in order.   I will change the names one at a time.   
+
+```{r}
+colnames(data)[1] <- 'ID'
+colnames(data)[2] <- 'Age'
+colnames(data)[3] <- 'Sex'
+colnames(data)[4] <- 'LOS'
+colnames(data)[5] <- 'LEStrength'
+colnames(data)[6] <- 'Cognition'
+colnames(data)[7] <- 'MobilityADM'
+colnames(data)[8] <- 'MobilityDC'
+head(data)
+```
+
+## Value Labels
+
+Sex is coded as 0 for Male, 1 for Female.  The CSV file, however, did not include 'value labels' that we would typically see in STATA or SPSS or SAS. We can convert it in R to a factor variable. 
+
+```{r}
+data$Sex <- factor(data$Sex, levels = 0:1, labels=c('Male', 'Female'))
+table(data$Sex)
+```
+
+## Quick Screen of the Data
+
+The data set is now established and clean.  There are no missing values.  The following is a quick screen of the data prior to what the main analysis was (linear regression though many other approaches are also possible).  We already have a table for our categorical variable so plots for continuous variable will work here. Plots that show the data points, the medians and quartiles, as well as means provide the reader with a full picture of central tendency, skewness and outliers.  
+
+```{r}
+
+
+
+```
