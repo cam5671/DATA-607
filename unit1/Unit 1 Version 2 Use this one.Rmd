@@ -1,0 +1,226 @@
+---
+title: "Unit 1 - DATA 607"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## Set Options
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error=FALSE, message=FALSE, warning=FALSE)
+```
+
+# APPROACH
+
+## *Introduction*
+
+The data source is a simulated data set that I based on research we
+conducted examining the relationship between cognition and mobility
+gains in patient rehabilitation for stroke. For IRB and HIPPA reasons, I
+could not post the actual data set but the results and structure are
+similar though our original data includes over 1,000 variables.
+
+The approach was to post the data on GitHub and then clean it in R
+Markdown as well as polish the names and value labels.
+
+# CODE
+
+## *Import Data*
+
+Data were imported from GitHub as a CSV file.
+
+```{r}
+url <- "https://raw.githubusercontent.com/cam5671/DATA-607/main/unit1/Mobility%20Gains%20in%20Stroke%20Rehabilitation.csv"
+data <- read.csv(url)
+head(data)
+```
+
+## *Drop Unnecessary Columns*
+
+The purpose is to examine the effect of admissions factors (age, sex,
+and clinical variables) on the Mobility Score at discharge. The mobility
+score is part of section GG data for inpatient rehabilitation and
+collected on every patient across the US. The predictors include
+Cognitive Score as assessed by the Montreal Cognitive Assessment, Lower
+Extremity Strength as measured by the Motricity Index, Age, Sex, and
+Length of Stay. Mobility score at discharge is the outcome. The most
+important predictor is likely the mobility score at admission which is
+also included. Discharge values for cognition and strength as well as
+hospital dates and clinic notes are unnecessary and are omitted.
+
+```{r}
+data <- data[,-c(2:4, 9, 11)]
+names(data)
+```
+
+## Change Variable Names
+
+Variable names can be improved to be more presentable and legible.
+Changing names can be perilous in R if you use a vector of names and
+assignment them in order. I will change the names one at a time.
+
+The final data set will include:
+
+-   ID: Participant ID
+-   Sex: Sex
+-   LOS: Length of Stay in Inpatient Rehabilitation
+-   Cognition: Cognitive Score on Montreal Cognitive Assessment
+-   MobilityADM: Mobility Score on Admission (Section GG of Inpatient Rehabilitation Assessment)
+-   MobilityDC: Mobility Score at Discharge
+
+```{r}
+colnames(data)[1] <- 'ID'
+colnames(data)[2] <- 'Age'
+colnames(data)[3] <- 'Sex'
+colnames(data)[4] <- 'LOS'
+colnames(data)[5] <- 'LEStrength'
+colnames(data)[6] <- 'Cognition'
+colnames(data)[7] <- 'MobilityADM'
+colnames(data)[8] <- 'MobilityDC'
+head(data)
+```
+
+## *Value Labels*
+
+Sex is coded as 0 for Male, 1 for Female. The CSV file, however, did not
+include 'value labels' that we would typically see in STATA or SPSS or
+SAS. We can convert it in R to a factor variable.
+
+```{r}
+data$Sex <- factor(data$Sex, levels = 0:1, labels=c('Male', 'Female'))
+table(data$Sex)
+```
+
+## Quick Screen of the Data
+
+The data set is now established and clean. There are no missing values.
+The following is a quick screen of the data prior to what the main
+analysis was (linear regression though many other approaches are also
+possible). We already have a table for our categorical variable so plots
+for continuous variable will work here. Plots that show the data points,
+the medians and quartiles, as well as means provide the reader with a
+full picture of central tendency, skewness and outliers. The red dot is
+the mean superimposed on the boxplot. The variables are relatively
+normally distributed and you can see an increase in mobility from
+admission to discharge. When we simulate data using rnorm, the data end
+up artificially close normality. In our real data we see more skew with
+variables like Length of Stay (LOS).
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+library(ggplot2)
+library(gridExtra)
+
+plotf <- function(x) {
+
+  ggplot(data, aes(x = "", y = .data[[x]])) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(
+      width = .05,
+      color = "steelblue",
+      pch = 1
+    ) +
+    stat_summary(
+      fun = mean,
+      geom = "point",
+      pch = 16,
+      color = "red",
+      size = 5
+    ) +
+    labs(
+      title = x,
+      x = NULL,
+      y = NULL
+    )
+}
+
+vars <- c(
+  "Age",
+  "LOS",
+  "LEStrength",
+  "Cognition",
+  "MobilityADM",
+  "MobilityDC"
+)
+
+plots <- lapply(vars, plotf)
+
+grid.arrange(
+  grobs = plots,
+  ncol = 3
+)
+```
+
+## *Descriptive Statistics for Variables*
+
+The plots provide a full picture but descriptives can help as well.
+
+```{r}
+library(psych)
+library(gt)
+library(dplyr)
+
+
+vars <- c("Age", "LOS", "LEStrength", "Cognition",
+          "MobilityADM", "MobilityDC")
+
+
+desc <- psych::describe(data[vars])
+
+desc_table <- desc %>%
+  mutate(
+    Variable = rownames(.),
+    IQR = sapply(data[vars], IQR, na.rm = TRUE),
+    Range = paste0(round(min, 1), "–", round(max, 1))
+  ) %>%
+  select(
+    Variable,
+    N = n,
+    Mean = mean,
+    SD = sd,
+    Median = median,
+    IQR,
+    Range
+  )
+
+desc_table %>%
+  gt() %>%
+  fmt_number(
+    columns = c(Mean, SD, Median, IQR),
+    decimals = 1
+  ) %>%
+  cols_align(
+    align = "center",
+    columns = everything()
+  ) %>%
+  cols_align(
+    align = "left",
+    columns = Variable
+  ) %>%
+  tab_header(
+    title = "Descriptive Statistics"
+  )
+```
+
+## Conclusion
+
+The data are ready for analysis and are appropriate for multiple linear
+regression though these data (and the real data) violate the assumption
+of heteroscedasticity and dominance analysis was used to determine the
+relative importance of the predictors. Other techniques like machine
+learning might offer better predictive accuracy and would be suitable
+for use on this dataset.
+
+## Acknowledgments
+
+Generative AI (ChatGPT, OpenAI) was used for guidance on working with
+GitHub. It was also used to refine the loop used for the plots and it
+was used to format the table of descriptive statistics to improve the
+appearance from the standard output in the Psych package.
