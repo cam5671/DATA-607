@@ -1,0 +1,101 @@
+---
+title: "DATA 607 SQL to R Assignment Unit 2 - Show Ratings"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = F, message = F, include=T)
+```
+
+# Approach
+
+I have limited practical experience with SQL so my plan is to keep this assignment limited and as clear as possible.   I am using DB Browser for SQL Lite which provides an easy to work with GUI.  I hope that will suffice for this assignment.
+
+I surveyed 5 friends about popular streaming shows and asked them to rate the shows from 1 to 5.  I kept track of responses in a word doc and then entered them into DB Browser.   
+
+Though I have years of experience working with data, I now am getting a glimpse of how much more powerful relational databases can be.     
+
+## Overview
+
+These are the ratings from 5 friends who have seen most (but not all), of some of the more popular streaming series right now.  
+
+##  Load packages
+
+```{r}
+library(RSQLite)
+library(DBI)
+library(dplyr)
+```
+
+
+## Read in Data
+
+
+```{r}
+
+db_file <- "shows3.db"
+
+file.exists(db_file)
+
+con <- dbConnect(SQLite(), db_file)
+
+showrate <- DBI::dbGetQuery(con, "
+SELECT
+    Raters.Name,
+    Shows.Show,
+    Ratings.Rating
+FROM Ratings
+JOIN Raters
+    ON Ratings.RaterID = Raters.RaterID
+JOIN Shows
+    ON Ratings.ShowID = Shows.ShowID
+")
+
+head(showrate)
+
+```
+## Data Analysis
+
+Only Reacher, Ted Lasso and Silo were seen by everyone. Only 2 people had seen Furious and both rated it fairly low.   Ted Lasso had the best ratings.  In a small data set like this there is no need to consider imputation or other replacement strategies.  Nor would any of them be effective here.  The data are not missing at random - they depend on the rater as you can see in the second table.  
+
+```{r}
+table(showrate$Show,showrate$Rating)
+
+table(showrate$Name, is.na(showrate$Rating))
+```
+
+## Plot
+
+With 5 responses and missing values, we could graph this with and without the missing values. Omitting them however, gives the illusion of consistent ratings for shows like Furious.   
+
+```{r}
+library(ggplot2)
+library(scales)
+showrate %>%
+  ggplot(aes(x = Show, fill = factor(Rating))) +
+  geom_bar(position = position_fill(reverse = TRUE)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(
+    palette = "Spectral",
+    direction = 1
+  ) +
+  labs(
+    x = "Show",
+    y = "Percent",
+    fill = "Rating"
+  ) +
+  ggtitle("Ratings by Show") + 
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    legend.position = "right"
+  )
+```
+
+## Acknowledgments
+
+ChatGPT was used to walk me through using SQL.  It was also used to refine my plot of show ratings.    
+
+
