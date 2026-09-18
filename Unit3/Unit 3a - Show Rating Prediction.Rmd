@@ -1,0 +1,173 @@
+---
+title: "DATA 607 SQL to R Assignment Unit 3a - Show Rating Prediction"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = F, message = F, include=T)
+```
+
+# APPROACH
+
+I have a small data set of 5 friends and the shows they like from the previous assignment.  The approach is to use the global baseline estimate formula and predict how my friends would rate the shows they haven't seen. The formula seems straight forward accounting for both the row and column means to make a basic prediction.  
+
+# CODE BASE
+
+## Overview of Data
+
+These are the ratings from 5 friends who have seen most (but not all), of some of the more popular streaming series right now.  
+
+##  Load packages
+
+```{r}
+library(RSQLite)
+library(DBI)
+library(dplyr)
+```
+
+
+## Read in Data
+
+I am reading in the data again similar to what we did in Unit 2.   
+
+```{r}
+
+db_file <- "shows3.db"
+
+file.exists(db_file)
+
+con <- dbConnect(SQLite(), db_file)
+
+showrate <- DBI::dbGetQuery(con, "
+SELECT
+    Raters.Name,
+    Shows.Show,
+    Ratings.Rating
+FROM Ratings
+JOIN Raters
+    ON Ratings.RaterID = Raters.RaterID
+JOIN Shows
+    ON Ratings.ShowID = Shows.ShowID
+")
+
+head(showrate)
+
+```
+
+## Data Analysis
+
+I am repeating the tables so that you can see where the values are missing.  Only Reacher, Ted Lasso and Silo were seen by everyone. You can also get a sense of where the data are missing in the plot below.  
+
+```{r}
+table(showrate$Show,showrate$Rating)
+
+table(showrate$Name, is.na(showrate$Rating))
+```
+
+## Plot
+
+With 5 responses and missing values, we could graph this with and without the missing values. Omitting them however, gives the illusion of consistent ratings for shows like Furious.   
+
+```{r}
+library(ggplot2)
+library(scales)
+showrate %>%
+  ggplot(aes(x = Show, fill = factor(Rating))) +
+  geom_bar(position = position_fill(reverse = TRUE)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_brewer(
+    palette = "Spectral",
+    direction = 1
+  ) +
+  labs(
+    x = "Show",
+    y = "Percent",
+    fill = "Rating"
+  ) +
+  ggtitle("Ratings by Show") + 
+  theme_minimal() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    legend.position = "right"
+  )
+```
+## Show which ratings are missing
+
+I am using dyplr functions.  
+
+```{r}
+showrate %>%
+  filter(is.na(Rating)) %>%
+  select(Name, Show)
+```
+
+## Global Baseline Estimate
+
+Using the formula presented in class and on the excel worksheet posted, we calculate the GBE as follows:
+
+GBE = Global show average + centered show rating + centered rater rating.  
+
+The ratings worked out to be the same except for Dan having a low rating for Furious.  Since we see the same numbers it would be wise to spot check at least one of the GBEs.  
+
+
+```{r}
+showrate_est <- showrate %>%
+  mutate(global_avg = mean(Rating, na.rm = TRUE)) %>%
+  
+  group_by(Name) %>%
+  mutate(rater_avg = mean(Rating, na.rm = TRUE)) %>%
+  ungroup() %>%
+  
+  group_by(Show) %>%
+  mutate(show_avg = mean(Rating, na.rm = TRUE)) %>%
+  ungroup() %>%
+  
+  mutate(
+    GER = global_avg +
+          (rater_avg - global_avg) +
+          (show_avg - global_avg)
+  )
+
+```
+
+
+```{r}
+showrate_est %>%
+  filter(is.na(Rating)) %>%
+  select(Name, Show, GER)
+```
+
+## Spot Check
+
+Since the values came out close, I am just spot checking one of the ratings.   It agrees with what was calculated.  
+
+```{r}
+gmean <- mean(showrate$Rating, na.rm=TRUE)
+p_mean <- showrate %>%
+  filter(Name == "Paul") %>%
+  pull(Rating) %>%
+  mean(na.rm = TRUE)
+fur_mean <- showrate %>%
+  filter(Show == "Furious") %>%
+  pull(Rating) %>%
+  mean(na.rm = TRUE)
+
+## Check the Rating by manual calculation 
+## Parens are not needed but help to organize.  
+
+GER_Paul_Furious <- gmean+p_mean-gmean+fur_mean-gmean
+GER_Paul_Furious
+
+
+```
+
+## Conclusion
+
+There were 4 missing ratings and each was estimated using the Global Baseline Average.  The average accounts for all ratings, the ratings of the specific rater and the ratings of the show.   It does not, however, account for whether one specific rater like a specific show and whether that would result in a higher rating for the missing show.  For example, if the model determined that Silo and Furious were similar, there might be ways to account for that in the prediction when filling a missing value for either one.   More complex models can do that.  
+
+
+
