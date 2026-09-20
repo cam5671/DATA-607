@@ -1,0 +1,184 @@
+---
+title: "Unit 3b - Window Functions"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+
+
+# APPROACH
+
+I plan to use stock quotes for two, AI related stocks (AMD and NVIDIA) which have moved quite a bit in the past few years and are volatile based on experts vacillating between AI growth explosion, predictions of an AI bubble, and fears of an AI takeover. The true value of the stock probably lies somewhere within but the YTD and moving averages of both should be interesting. Both make chips that are essential for data centers. NVIDIA mostly makes GPUs while AMD makes CPUs but has been heavily invested in the graphics space as well with their integrated and stand-alone Radeon chips after their acquisition of ATI. I own both stocks (in small amounts unfortunately).
+
+The initial plan was to find and save CSVs for each quote and then upload them into separate data frames. However, it is more efficient to pull one large data set from Yahoo finance directly with hourly and daily quotes. I can use this one data set for both and use DPLYR to carve out parts of it.
+
+# CODE BASE
+
+## Data Overview
+
+Stock data and end of day quotes are available from multiple sources. Initially I used StockQuote.io which offers CSV files for download. I then tried to pull the data directly from Yahoo finance.^1^ This will give us one data set we can use window functions with rather than using separate data sets for each stock as I would usually do.
+
+```{r}
+library(jsonlite)
+library(dplyr)
+library(readr)
+library(lubridate)
+
+# Function to pull Yahoo Finance price data
+get_yahoo_prices <- function(symbol, range, interval) {
+  
+  url <- paste0(
+    "https://query1.finance.yahoo.com/v8/finance/chart/",
+    symbol,
+    "?range=", range,
+    "&interval=", interval,
+    "&includePrePost=false"
+  )
+  
+  x <- fromJSON(url, simplifyVector = FALSE)
+  result <- x$chart$result[[1]]
+  
+  timestamps <- unlist(result$timestamp)
+  quote <- result$indicators$quote[[1]]
+  
+  # Convert NULL values to NA without dropping rows
+  get_num <- function(x) {
+    vapply(
+      x,
+      function(z) {
+        if (is.null(z)) NA_real_ else as.numeric(z)
+      },
+      numeric(1)
+    )
+  }
+  
+  data.frame(
+    Symbol = symbol,
+    DateTime = as.POSIXct(
+      timestamps,
+      origin = "1970-01-01",
+      tz = "UTC"
+    ),
+    Open   = get_num(quote$open),
+    High   = get_num(quote$high),
+    Low    = get_num(quote$low),
+    Close  = get_num(quote$close),
+    Volume = get_num(quote$volume)
+  ) %>%
+    mutate(
+      DateTime = with_tz(DateTime, "America/New_York")
+    )
+}
+
+# Hourly data for year to date
+daily_YTD <- bind_rows(
+  get_yahoo_prices("AMD", "ytd", "1d"),
+  get_yahoo_prices("NVDA", "ytd", "1d")
+)
+
+
+# Check data
+head(daily_YTD)
+```
+
+## Defining Moving Averages
+
+The assignment calls for using window functions to calculate year-to-date average and the six day moving averages for each item.
+
+There are probably variations that finance experts could point to (I am certainly not one) that may work here. I am interpreting the instructions to mean:
+
+- Calculate, in each row, the year to date average based on that day.  This will be the cummulative mean for each day based on all the days in the year up to that point for that stock.  
+
+- Calculate, in each row, a 6 day moving average, based on that day.  This will be the average of each day plus the 5 previous days for each day of the year for that stock.  
+
+*If you look at the prices for these stocks, especially AMD, the YTD average does not tell the full story (except over longer time frames) and reduces the explosive the growth that occurred later in the year.  The stock price really took off recently but that is reduced by the lower prices earlier in the year.* 
+
+```{r}
+library(dplyr)
+daily <- daily_YTD %>%
+  mutate(Date = as.Date(DateTime)) %>%
+  group_by(Symbol) %>%
+  arrange(Date, .by_group = TRUE) %>%
+  mutate(
+    Daily_Avg_YTD = cummean(Close)
+  ) %>%
+  ungroup()
+head(daily, 10)
+
+
+```
+
+## Plot YTD Averages
+
+I am plotting the YTD averages for both stocks. I am using DPLYR to avoid creating new data sets to use in ggplot. This reduces the clutter in my environment. I normally would have created new data sets by writing daily_amd_ytd <- daily[daily$Symbol=="AMD",] and my environment usually ends up with dozens of objects with many only used once.
+
+```{r, warning=F}
+library(ggplot2)
+library(gridExtra)
+
+p1 <- daily %>% 
+  filter(Symbol=="AMD") %>%
+ggplot(aes(x=Date, y=Daily_Avg_YTD)) + geom_line() + scale_x_date(date_breaks = "1 month", date_labels = '%b') + ylab("Daily YTD Average") + theme_minimal() + ggtitle("AMD")
+p2 <- daily %>% 
+  filter(Symbol=="NVDA") %>%
+ggplot(aes(x=Date, y=Daily_Avg_YTD)) + geom_line() + scale_x_date(date_breaks = "1 month", date_labels = '%b') + ylab("Daily YTD Average") + xlab("Month") + theme_minimal() + ggtitle("NVDA")
+
+grid.arrange(p1,p2, ncol=2)
+```
+
+## 6 Day Moving Averages
+
+I created a new data frame with 6 day moving averages.  k=6 results in a moving 6-day average for the end of day quotes.   These should show the dramatic growth more clearly.  
+
+```{r}
+daily_6d <- daily_YTD %>%
+  group_by(Symbol) %>%
+  arrange(DateTime, .by_group = TRUE) %>%
+  mutate(
+    SixDay = zoo::rollmean(
+      Close,
+      k = 6,
+      fill = NA,
+      align = "right"
+    )
+  ) %>%
+  ungroup()
+head(daily_6d,10)
+```
+
+## Create Plots
+
+In the plots below you can see the true scale of the growth for both stocks, particularly for AMD.  NVidia stock used to be much higher but was split within the past few years.  
+
+```{r, warning=F}
+p3 <- daily_6d %>% 
+  filter(Symbol=="AMD") %>%
+ggplot(aes(x=DateTime, y=SixDay)) + geom_line() + scale_x_date(date_breaks = "1 month", date_labels = '%b') + ylab("Daily 6-Day Moving Average") + theme_minimal() + ggtitle("AMD") + xlab("Month")
+p4 <- daily_6d %>% 
+  filter(Symbol=="NVDA") %>%
+ggplot(aes(x=DateTime, y=SixDay)) + geom_line() + scale_x_date(date_breaks = "1 month", date_labels = '%b') + ylab("Daily 6-Day Moving Average") + xlab("Month") + theme_minimal() + ggtitle("NVDA")
+
+grid.arrange(p3,p4, ncol=2)
+
+
+```
+
+## Acknowledgements
+
+ChatGPT^2^ was used to develop and refine code for pulling finance data from Yahoo Finance.  
+
+## References
+
+1.  Yahoo Finance. Yahoo Finance. Accessed September 19, 2026. https://finance.yahoo.com/
+
+2. OpenAI. ChatGPT (GPT-5.6 Sol) [large language model]. Accessed September 19, 2026.
