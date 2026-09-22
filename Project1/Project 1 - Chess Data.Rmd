@@ -1,0 +1,217 @@
+---
+title: "Project 1 - Chess Rakings"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  error = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+
+# APPROACH
+
+The purpose of this project is to take a text file that has a complicated structure, import it to R, develop a meaningful and useful file structure and then export it to CSV.  The assignment calls for the final CSV to have the following data:
+
+Player’s Name, Player’s State, Total Number of Points, Player’s Pre-Rating, and Average Pre Chess Rating of Opponents
+
+It may not be the most efficient way to do this, but in order to make sure I understand each step, I am going to do things deliberately in a series of smaller steps.  There might be more efficient ways to do this.    
+
+The plan is to:
+
+- Import text as it is currently structured
+- Omit  unneeded rows like the dashed lines
+- Move everything to one line for each player
+- Clean the data and separate items like the pre and post ratings and the result and opponent numbers which are in the same cells   
+- Export player names, opponent numbers, and ratings to a long format data frame 
+- Aggregate the mean opponent rating and move it back to the main data frame
+- Choose specific columns and export to CSV
+
+# CODE BASE
+
+## Import text file
+
+This brings in the text file exactly as it is structured for download.   The key is to get all of the data associated with each player in one row.   This results in a character file with separate lines which can be useful.   We can then omit lines like the '----' to make this more conventional.  
+
+```{r}
+library(readr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+
+data <- read_lines("tournamentinfo.txt")
+
+head(data, 5)
+```
+
+## Omit unnecessary rows and move remaining second rows up so that there is one row per player.  
+  
+The rows with dashed lines are unneeded and the first two rows are header information.  We can drop them.  After that, the next step is to move everything for each player to one row.  For some reason, the first player ended up in the first 3 rows but the 3rd was the only one we needed to keep.  
+
+```{r}
+# Remove the dashed lines
+data <- data[!grepl("^\\s*-+\\s*$", data)]
+
+# Drop the first two rows
+data <- data[-c(1,2)]
+
+
+# Move line below to the first line associated with the player.  
+idx <- seq(1, length(data) - 1, by = 2)
+
+data <- c(
+  data[1:2],
+  paste(data[idx], data[idx + 1])
+)
+
+# For some reason, the first two rows remain split but are duplicated in 3.  Drop 1 and 2 again.  
+
+data <- data[-c(1, 2)]
+
+head(data)
+```
+
+## Create New Data Frame with Opponent Rankings
+
+Working from within the data now would be challenging to keep track of the ratings versus the opponent numbers.  It is easier to create a new (long format) data frame with the ratings.  First, omit the | symbols and save data as the player data frame.  
+
+### Create the main player df
+
+This will be the main data frame but matching the ratings to opponents is easier in long format.  
+
+```{r}
+players <- read.table(
+  text = data,
+  sep = "|",
+  fill = TRUE,
+  strip.white = TRUE,
+  quote = "",
+  stringsAsFactors = FALSE
+)
+```
+
+
+## Rename columns and spit ratings column. 
+
+When I create the player data frame, the columns are named V1, V2,..., etc.  They should be renamed.  I also split the ratings into two columns and removed the provisional designation by specifying 'as.numeric.'   There are two clean columns toward the right that have the pre and post ratings.  
+
+```{r}
+players <- players %>%
+  rename(
+    PlayerNo = V1,
+    Name = V2,
+    Points = V3,
+    Round1 = V4,
+    Round2 = V5,
+    Round3 = V6,
+    Round4 = V7,
+    Round5 = V8,
+    Round6 = V9,
+    Round7 = V10,
+    State = V11,
+    Rating = V12,
+    N = V13
+  )
+
+players <- players %>%
+  mutate(
+    USCF_ID = sub("\\s*/.*", "", Rating),
+    PreRating = as.numeric(
+      sub(".*R:\\s*([0-9]+).*", "\\1", Rating)
+    ),
+    PostRating = as.numeric(
+      sub(".*->\\s*([0-9]+).*", "\\1", Rating)
+    )
+  )
+
+```
+
+##  Create games df
+
+This results in the long format data frame with player, opponent and result.  The header confirms this was OK and that the result H had no opponent number which is appropriate for a bye.  
+
+```{r}
+games <- players %>%
+  select(PlayerNo, Round1:Round7) %>%
+  pivot_longer(
+    cols = Round1:Round7,
+    names_to = "Round",
+    values_to = "Game"
+  )
+
+# separate result from opponent number
+
+games <- games %>%
+  separate(
+    Game,
+    into = c("Result", "OpponentNo"),
+    sep = "\\s+",
+    convert = TRUE
+  )
+head(games)
+```
+
+## Link player number to ratings and aggregate means
+
+This pulls in the opponent name and rating by using the player number.  Having the name is also a good way to spot check the rating which seem accurate.   Using DPLYR we can aggregate the mean opponent rating for each player number like we did for the last assignments.   
+
+```{r}
+games <- games %>%
+  left_join(
+    players %>% select(PlayerNo, Name, PreRating),
+    by = c("OpponentNo" = "PlayerNo")
+  )
+
+# Calculate Opponent Means
+
+games <- games %>%
+  group_by(PlayerNo) %>%
+  mutate(
+    MeanOpponentRating = mean(PreRating, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+head(games)
+```
+
+## Bring ratings back to the player df
+
+Similar to how the ratings were moved to the games DF, the averaged ratings now need to be moved to the player DF.   The final step is to split the rating for the player into pre and post ratings with provisional designations omitted.  
+
+```{r}
+players <- players %>%
+  left_join(
+    games %>%
+      select(PlayerNo, MeanOpponentRating) %>%
+      distinct(),
+    by = "PlayerNo"
+  )
+```
+
+## Create final data frame
+
+Everything needed for the final data frame is in the player DF.  It can be trimmed, renamed, and saved.  The final csv is ChessRatings.csv.  The head command confirms that I have the right columns.  
+
+```{r}
+names(players)
+
+final <- players[c(2, 11, 3, 23,25)]
+head(final)
+
+write.csv(final, "ChessRatings.csv")
+```
+
+## CONCLUSION
+
+This involved multiple specific steps but it allowed me to keep everything organized and sequential.  There are probably faster ways of doing this and linking the two dfs could potentially be more efficient in SQL or another database system where you could have multiple tables - some long and some wide.  But given the need to work with and process all of this character data, keeping it in R was easier and more effective for me.  I have struggled with Left Join on multiple projects.  Using it here has been helpful.   
+
+## Acknowledgements 
+
+ChatGPT (GPT-5.6 Sol) was used to refine the code, troubleshoot errors, and to explain the elements of the chess ratings.   
+
