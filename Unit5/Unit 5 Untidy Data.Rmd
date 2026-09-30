@@ -1,0 +1,146 @@
+---
+title: "Unit 5 Un-Tidy Data"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=F, message=F, error=F)
+```
+
+# APPROACH
+
+The approach is to take the airline delay data and tidy it up and reshape it as needed.  
+
+# CODE BASE
+
+## Load Packages
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+```
+
+## Load Data
+
+I put the data in CSV format and imported it in to R.   In R, it ends up in a format that isn't as useful as we would like.   The data appear to be in a combination of Wide AND Long format.  There are two entries for each airline in the rows (not quite fully long or wide)  and destinations in the columns (more consistent with Wide).  There are no missing data and it is important to remember these are counts.  
+
+```{r}
+data <- read.csv('delays.csv')
+head(data)
+```
+
+## Transfer Data to Long Format
+
+As the data are formatted currently, for the first part of the assignment, we  only need to move the columns with the cities into long format.  It is always wise to check the numbers after reformatting.  A spot check reveals that the data were converted accurately.  Because of hub status, there are many more flights out of Seattle than anywhere else.  
+
+```{r}
+data_long <- data %>%
+  pivot_longer(
+    cols=3:7, 
+    names_to = "City",
+    values_to = "Flights",
+  )
+head(data_long, 10)
+
+```
+
+## Compare Percentages of Overall Delays for Each Airline
+
+This is just taking the total number of delayed flights for each airline and dividing it by the total number of flights for that airline.  
+
+You can see that Alaska had a higher proportion of delays (13%). 
+
+```{r}
+
+overall_delays <- data_long %>% 
+  group_by(Airline) %>%
+  summarise(
+    total_flights = sum(Flights),
+    delayed_flights = sum(Flights[Status == "delayed"]),
+    percent_delay = delayed_flights / total_flights*100
+  )
+overall_delays
+```
+
+
+## A significant Difference
+
+To see if there was a significant difference in the proportion of delayed flights between airlines we can run a chi-squared test of association.  For that we would need to construct a 2x2 table with the counts.   We have the delayed counts but need to add on-time back in.  It would be easier for me to take the current overall_delays tibble and turn it into a data frame and then just subtract the delayed from the total adding a new column - on-time.   
+
+*This is what I would normally do*
+
+```{r}
+table_oldway <- as.data.frame(overall_delays)
+
+table_oldway$ontime <- table_oldway$total_flights-table_oldway$delayed_flights
+```
+
+
+*I could then reduce this to columns 5 and 3 or just leave as is and run the test with those two columns*
+
+Since we are working on DPLYR however, I will attempt to develop the table staring from the long data frame.  The code is similar to what we did previously but we no longer need the overall totals, just the totals for delayed and on-time.   This results in a 2x2 we can use for the test.  In a package like Stata which I also use quite a bit, things like this are much easier from the tab command.    
+
+There was a significant association between flight delays and Airlines (*P*<.001).  We could also describe this as a significant difference in the proportion of delayed flights between the airlines.  Alaska had significantly more overall_delays.  
+
+```{r}
+flight_table <- data_long %>%
+  group_by(Airline) %>%
+  summarise(
+    ontime = sum(Flights[Status == "on time"]),
+    delayed = sum(Flights[Status == "delayed"]),
+  )
+flight_table <- flight_table[,-1]
+chisq.test(flight_table)
+
+```
+
+## Plot Overall Delays
+
+You can see a higher percentage of delays here for Alaska.  
+
+```{r}
+
+overall_delays %>%
+  ggplot(aes(x=Airline, y=percent_delay)) + 
+  geom_bar(col='black', fill='steelblue', stat='identity') + ylab("Percentage Delayed")+ scale_y_continuous(breaks = seq(from=0, to =15, by=1))
+```
+
+## Delays by City
+
+To separate this by city, we only need to put 'City' in as a grouping layer and remove 'Status'.  In looking at both the table and the chart, we see something very interesting.  Across the board, Alaska had a lower percentage of delayed flights in each city.  How was that possible?   This is an interesting case of confounding where airline was confounded by city.  
+
+It turns out that Alaska had better on-time performance.  However, they had many more flights to cities with higher delays.  For example, one of the most delayed cities was Seattle.  America West only had 262 total flights compared to Alaska's 2,146.  Conversely, Phoenix experienced few delays.   Most of the America West flights were to Phoenix (5,255) with only 233 flights to Phoenix from Alaska.   
+
+```{r}
+city_delays <- data_long %>%
+  group_by(Airline, City) %>%
+   summarise(
+    total_flights = sum(Flights),
+    delayed_flights = sum(Flights[Status == "delayed"]),
+    percent_delay = delayed_flights / total_flights*100
+  )
+city_delays
+
+```
+
+## Plot Delays by City
+
+Here we can see that the proportion of delayed flights was much higher in San Francisco and Seattle, particularly for America West.  America West had more delays in *every city* compared with Alaska which differs sharply from the overall analysis.  With the overall numbers low, and the proportion of delayed flights in those cities so high, it is worth checking the math by looking at the original data again.  But the percentages look accurate upon inspection and this is a case of confounding.  
+
+```{r}
+library(RColorBrewer)
+city_delays %>% 
+    ggplot(aes(x=City, y=percent_delay, fill=Airline)) + 
+    geom_bar(position="dodge",col='black',stat='identity') + ylab("Percentage Delayed")+ scale_y_continuous(breaks = seq(from=0, to =50, by=5)) + 
+  scale_fill_brewer(type="qual", palette = "Blues")
+```
+
+
+## Conclusion
+
+Alaska had better on-time performance by a reasonable margin.  This is the danger of looking at totals only and not accounting for confounding.  
