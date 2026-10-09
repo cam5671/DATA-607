@@ -1,0 +1,269 @@
+---
+title: "DATA 607 Project 2"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE, message=F, warning=F, error=F}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(haven)
+library(skimr)
+library(ggpubr)
+library(psych)
+library(naniar)
+```
+
+# EXAMPLE 1 - Rehabilitation for Anterior Knee Pain
+
+## APPROACH
+
+This is a simple data set I use for teaching graduate health professions students SPSS or JASP.  It is a simulated data set in wide format that includes a few basic variables related to an intervention program for anterior knee pain evaluated as a single group pretest post-test design.   The data are in wide format with repeated measures for function - The Anterior Knee Pain Scale (AKPS) and pain - Numeric Pain Rating Scale (NPRS).  I will convert those to long format with Pre and Post measures for each using TIDYR.      
+
+## CODE BASE
+
+### Data Import
+
+Data are currently in SPSS. The two outcomes are noted as "...PRE" and "...POST," and both outcomes have separate columns for each.  Those are the ones that we should convert to long.  There are no missing values.    
+
+```{r}
+knee <- read_spss("lab1_2023.sav")
+skim(knee)
+head(knee)
+```
+
+### Wide to Long
+
+This data set is simple but the pivot is complicated by having pre and post of 2 separate measures. Those need to be kept in separate columns.  Looking at the data, it is now optimized for certain procedures and charts.   You can see each person has two rows, one for pre and one for post with separte columns for the two outcome variables.  
+
+```{r}
+knee_long <- knee %>%
+  pivot_longer(
+    cols = c(AKPSPRE, AKPSPOST, NPRSPRE, NPRSPOST),
+    names_to = c(".value", "Time"),
+    names_pattern = "(.*)(PRE|POST)$"
+  )
+head(knee_long)
+```
+
+### Charts
+
+The long format enables charts such as paired charts which are a great choice for pre and post.  For the AKPS higher scores indicate better function while for the NPRS lower scores indicate less pain.  So we would expect the AKPS scores to go up and the NPRS scores to reduce.  Points in the paired plot, especially for NPRS represent several participants.  There is no way to jitter those values unless you manually overlay a jitter plot.  
+
+*When working with outcome measures it is always good practice to keep a hard copy or electronic copy at hand, complete with scoring instructions.  I have seen issues when data analysts make errors because they do not understand the clinical measures they are working with.*
+
+```{r}
+knee_long %>%
+  group_by(Time) %>%
+  summarize(
+    AKPSm = mean(AKPS),
+    AKPSsd = sd(AKPS),
+    NPRSm = mean(NPRS),
+    NPRSsd = sd(NPRS),
+  )
+
+ggpaired(knee_long, id='ID', x="Time", y="AKPS", line.color='grey', line.size = .1, linetype='solid', color='steelblue')+ggtitle("AKPS")
+ggpaired(knee_long, id='ID', x="Time", y="NPRS", line.color='grey', line.size = .1, linetype='solid', color='steelblue')+ggtitle("NPRS")
+```
+
+### Conclusion
+
+The data are easier to work with in long format for *some* procedures but not all.  Sometimes as analysts we are caught having to move back and forth between both to perform procedures like ANOVA (long) and then regression (wide).  And some of this depends on what package you are using.   
+
+# EXAMPLE 2 - National Nutrition and Health Examination Survey 
+
+## APPROACH
+
+The National Nutrition and Health Examination Survey (NHANES) is a large longitudinal study to evaluate the health and nutrition of US adults.^1^  It is one of the most important longitudinal studies and data sources on this topic.   Data are available for download without an agreement.  The study is longitudinal but for this exercise I am using cross sectional data with repeated measures.  
+
+I will focus on blood pressure readings and will convert the wide-format variables to long format.  To clean this data set you have to work closely with the code book to make sure you know what you are selecting.  The plan is to select 3 BP readings each for Systolic and Diastolic blood pressure in wide format and convert them to long format using TDYR.  The BP readings are taken sequentially at the same visit.   
+
+## CODE BASE
+
+### Import Data
+
+Data are available for different sequences of years.   I am using the 2017-2018 blood pressure data.   Data are available as a SAS .xpt file.  I will import it directly into R.  Note that these data are not connected to the demographics or other data in the study.  Those can be connected and linked via the unique identifier (SEQN).
+
+We can see that there are some columns which are mostly empty (which often are from additional readings in different locations).  I will use the main systolic and diastolic BP readings.
+
+```{r}
+bp <- read_xpt('BPX_J.xpt')
+skim(bp)
+```
+
+### Select columns
+
+I need the ID number, and the 3 primary Systolic Readings (BPXYS1, BPXYS2, BPXYS3 and 3 Diastolic Readings (BPXDI1, BPXDI2, BPXDI3).   There are additional readings if some are missed but we will omit those for the purposes of this assignment.    
+
+```{r}
+bp <- bp %>%
+  select(c("SEQN","BPXSY1", "BPXSY2", "BPXSY3", "BPXDI1", "BPXDI2", "BPXDI3"))  
+head(bp)
+
+```
+
+### Missing Values
+
+In all studies like this there are a lot of missing values.  Here we see a reasonable number of complete cases and the data set is very large, which helps.  Imputation can sometimes be used but assumptions have to be met and one cannot impute an outcome variable. I see 1,990  cases missing all 6 readings and various levels of missingness of other combinations but there are more than 6,000 complete cases to work with.  
+
+```{r}
+library(dplyr)
+library(naniar)
+
+bp %>%
+  select(BPXSY1:BPXSY3, BPXDI1:BPXDI3) %>%
+  gg_miss_upset(nsets = 6)
+
+bp <- bp %>%
+  filter(complete.cases(.))
+
+```
+
+### Use TIDYR to convert from Wide to Long
+
+You can clearly see a sensible layout below with more usable variable names.  The psych package gives us descriptive statistics for each of the readings.   
+
+```{r}
+bp_long <- bp %>%
+  pivot_longer(
+    cols = c(BPXSY1:BPXSY3, BPXDI1:BPXDI3),
+    names_to = c(".value", "Time"),
+    names_pattern = "BPX(SY|DI)([1-3])"
+  ) %>%
+  rename(
+    Systolic = SY,
+    Diastolic = DI
+  )
+head(bp_long)
+
+library(psych)
+
+bp_summary <- psych::describeBy(
+  bp_long[, c("Systolic", "Diastolic")],
+  group = bp_long$Time,
+  mat = TRUE
+)
+bp_summary
+
+```
+
+### Conclusion 
+
+This was a good example of taking a very large study and focusing on a specific outcome and moving from wide to long.  The NHANES can be linked which allows for an almost infinite number of explorations and data possibilities.   There are data sets on a wide variety of health outcomes as well as demographic and other variables that can be used as predictors.  This might be a good data set to return to if future assignments call for complex linking of data sources.   
+
+
+# EXAMPLE 3 - Wrangling and Cleaning a Large Data Set - NYC Community Health Survey
+
+## APPROACH
+
+The NYC community health dataset was conducted annually until 2020.^2^  It is a great source of data providing a snapshot of the health of NYC residents each year.  The data include 142 variables.   For the purposes of this assignment, I will focus on Asthma outcomes.   For brevity/clarity, I will work with Asthma Rates by Neighborhood poverty level.   There are many other predictors that are related to asthma in the data set such as BMI, age, sex, environmental factors, mental health, access to care, comorbidities, etc.   The purpose of this assignment is to wrangle untidy data rather than analyze the risk factors for asthma.  This is a wide data set.   And though, the analysis doesn't include repeated measures which require a long format, we do need to use DPLYR to break out the Asthma rates by different factors.  This is also a great example of working with data that is coded but comes to you uncoded where variable names have to change and variable labels need to be appended.  
+
+## CODE BASE
+
+### Import Data
+
+The first 'untidy' issue with the NYC CHS data set is the format.  It is, as data was for years, formatted for analysis in SAS.  Fortunately we can import SAS data directly into R.  When working with SAS data, one should remember that their regression procedures (logistic) require the higher number to be 'NO' and the lower number to be 'YES' which can be counter intuitive and also incompatible with other packages like STATA and SPSS.  R does better with the higher number as 'YES' but factor variables can be challenging in R.  I have worked on dozens of projects where yes/no was 0/1 but Rs factor structure keeps forcing factors to be 1/2. None of these will be an issue here but it is something to keep an eye on.  
+
+Please also note that analysis of the NYC data set can be analyzed with survey weights which we will not use here.  
+
+```{r}
+library(haven)
+data <- read_sas('chs2020_public.sas7bdat')
+head(data,10)
+```
+
+
+### Select the Columns
+
+The primary outcome is the one-year prevalence of asthma, currentasthma20.  I am also including some basic demographic variables that would allow us to calculate different rates.   
+
+```{r}
+data <- data %>%
+  select(c("currentasthma20", "agegroup", "birthsex", "imputed_povertygroup"))
+head(data)
+```
+
+### Change Names and Label Values
+
+Unless you are working directly in SAS, there are no value labels and we have to make the variable names workable.  
+
+### Names
+
+```{r}
+nnames <- c("Asthma", "Age", "Sex", "Poverty")
+
+names(data) <- nnames
+```
+
+### Labels
+
+You need to consult the official codebook to map the value labels to the appropriate integer in the data.  
+
+```{r}
+data$Asthma <- factor(data$Asthma, levels=1:2, labels=c("Yes","No"))
+data$Age <- factor(data$Age, levels=1:4, labels=c("18-24", "25-44", "45-64", "65+"))
+data$Sex <- factor(data$Sex, levels=1:2, labels=c("Male","Female"))
+data$Poverty <- factor(data$Poverty, levels=1:5, labels=c("<100%", "100%-200%", "200%-400%", "400%-600%",">600%"))
+head(data)
+```
+
+### Quick Summary
+
+Table 1 is an easy way to look things over.  There are few missing values.   
+
+```{r}
+library(table1)
+table1(~., data=data)
+```
+
+
+### DPLYR to Summarize the Rates 
+
+This is not a data set with repeating measures in the columns so there is no practical reason to go from wide to long unless we want to summarize the rates by each factor.  We can see that the rate is much higher in women than men and is much higher in the lowest poverty group.   The youngest group had a much lower rate than the rest of the sample.   
+
+```{r}
+## Rates by Sex
+data %>%
+  filter(!is.na(Age)) %>%
+  group_by(Age) %>%
+  summarise(
+    Asthma_Rate = mean(Asthma == "Yes", na.rm = TRUE) * 100
+  )
+
+data %>%
+  filter(!is.na(Sex)) %>%
+  group_by(Sex) %>%
+  summarise(
+    Asthma_Rate = mean(Asthma == "Yes", na.rm = TRUE) * 100
+  )
+
+data %>%
+   filter(!is.na(Poverty)) %>%
+  group_by(Poverty) %>%
+  summarise(
+    Asthma_Rate = mean(Asthma == "Yes", na.rm = TRUE) * 100
+  )
+```
+ 
+### Conclusion
+
+This was a good example of working with complex, publicly available data. These data often lack meaningful variable labels and value labels unless working with the specified package.  In my own university for example, we have REDCap for data collection which will export data with both the names and labels and factor variables are actually duplicated and presented once as numeric and once as factor.   But for data like these, we often have to use the codebook and go back and reconstruct everything which is a long process.  Here I was able to use DPLYR for basic summary statistics.   
+
+
+## References
+
+1.  Centers for Disease Control and Prevention (CDC). National Center for Health Statistics (NCHS). National Health and Nutrition Examination Survey Data. Hyattsville, MD: U.S. Department of Health and Human Services, Centers for Disease Control and Prevention, 2026.  
+
+2.  New York City Department of Health and Mental Hygiene. 2020 Community Health Survey (CHS) Public Use Data. NYC Health; 2020. Accessed October 9, 2026. https://www.nyc.gov/site/doh/data/data-sets/community-health-survey-public-use-data.page
+
+## Acknowledgements
+
+ChatGPT (OpenAI. ChatGPT (GPT-6) [large language model]. Accessed October 9, 2026) was used to suggest data sets that would work for this assignment.  It was also used to refine code after errors were encountered.   
