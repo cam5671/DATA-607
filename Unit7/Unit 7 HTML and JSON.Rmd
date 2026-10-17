@@ -1,0 +1,80 @@
+---
+title: "DATA 607 - Unit 7 - HTML and JSON"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# APPROACH
+
+I am somewhat new to both HTML and JSON.   So my approach is going to be do do the work in R Studio.  I will create three files including books.html and books.json and this RMD file.   I can create an HTML file and save it in studio but cannot create a JSON file.  I can however, create a text file and then save it as JSON with the json extension.  This will allow me to do all three here and save them for upload.   Once I import the files (books.html and books.json) into R, I will save them as data frames.  The comparison should be interesting.  It looks like I can use rvest for the HTML data and jsonlite for importing the two files.  
+
+Way back in the 'dot.com' era, like everyone else, I did have a website (on low back pain) that was getting a fair amount of traffic.  For that site, I coded quite a bit using HTML, but even then, people were using WYSIWYG editors and there was little coding that had to be done 100% manually.  I remember little of what I did so this should be interesting.  
+
+# CODE BASE
+
+## Read in HTML Table
+
+I set up the data as a table in HTML so it is easier to turn it into an R data frame.  The table imports well but we don't have column names.  I could easily have added them as a first row in HTML but I will add them here.  The first two rows have NAs for the second authors but it is preferable to having a string with both author's names in one cell for the 3rd row.  
+
+```{r}
+library(rvest)
+library(dplyr)
+books_html <- read_html("books.html")
+books1 <- books_html %>%
+  html_element("table") %>%
+  html_table
+books1 <- books1 %>%
+  rename(Book = X1,
+         Author1 = X2,
+         Author2 = X3,
+         Year = X4, 
+         Topic = X5)
+```
+
+## Read in JSON File
+
+The JSON file was written as a text file (also in R Studio), and was imported using JSON lite.   What stands out to me is how much more clear and elegant the JSON formatting is.  It is more of a pure data format.  HTML is much more complex and allows you to have the full range of fonts, formatting, pictures and features.  It obviously works for webpages but JSON is a better choice if you are only interested in the data - I think.  
+
+```{r}
+library(jsonlite)
+books2 <- fromJSON('books.json')
+books2 <- as.data.frame(books2)
+books2 <- books2 %>%
+  rename(Book = V1,
+         Author1 = V2,
+         Author2 = V3, 
+         Year = V4, 
+         Topic = V5)
+
+```
+
+## Differences between the file formats
+
+In HTML any table formatting and fonts are stripped and have to be rebuilt if you want a good looking table.  Variables came in as X1, X2,...,Xn compared to JSON which was V1, V2,...,Vn. As you can see below, they are now exactly the same.  When I tried to bind them, however, there was an error due to year coming in as integer in HTML and character in JSON.  So the string is converted to integer.  
+
+One issue to address is how the missing values come out.  After merging, the missing second author values came in as "" for HTML and NA for JSON.  I had to convert for consistency.  
+
+```{r}
+books2$Year <- as.integer(books2$Year)
+books3 <- bind_rows(books1, books2) |>
+  mutate(Author2 = na_if(Author2, ""))
+books3
+```
+
+# CONCLUSION
+
+This was an introduction for me in using the HTML and JSON file formats in R.  I learned how to work with each data source and then make them into usable formats for analysis.  This will be an important skill to build upon and learn much more about.   
+
+I made this easier by putting data within tables in HTML and JSON. Real-world applications will be far more complex and the data will be far less organized coming in.  Much of the HTML data we will use will come from scrapping which is going to be more challenging.  
+
+## Acknowledgements 
+
+ChatGPT (OpenAI. ChatGPT (GPT-6)) was used for suggestions on handling the missing values and suggestions for initial formatting in JSON and HTML.   
